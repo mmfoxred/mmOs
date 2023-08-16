@@ -115,7 +115,12 @@ typedef enum {
 } key_index_t;
 
 static char keymap[][4] = {
-        /* 扫描码 未与 shift 组合  与 shift 组合 以及相关状态 */
+        /* 扫描码 未与 shift 组合  与 shift 组合 以及
+        非扩展码状态：
+		这个字段记录了按键是否为扩展码的状态，通常用来判断是否需要添加扩展码前缀（0xE0）。
+
+		扩展码状态：
+		这个字段记录了是否处于扩展码状态，通常是在收到扩展码前缀后设置为 true。 */
         /* ---------------------------------- */
         /* 0x00 */ {INV, INV, false, false},   // NULL
         /* 0x01 */ {0x1b, 0x1b, false, false}, // ESC
@@ -261,7 +266,7 @@ void keymap_handler(int idt_index) {
     }
 
     // 获得通码
-    ushort makecode = (scancode & 0x7f);
+    ushort makecode = (scancode & 0x7f); //通码和断码的值是一样的，只是在断码的情况下最高位会被置为1。
     if (makecode == CODE_PRINT_SCREEN_DOWN)
     {
         makecode = KEY_PRINT_SCREEN;
@@ -304,6 +309,8 @@ void keymap_handler(int idt_index) {
     }
 
     // 计算 shift 状态
+    //如果大写锁定状态 capslock_state 为真，意味着 Caps Lock 键被按下。
+    //在这种情况下，字母键的输入应该是大写的。所以，shift 被取反
     bool shift = false;
     if (capslock_state)
     {
@@ -316,7 +323,7 @@ void keymap_handler(int idt_index) {
 
     // 获得按键 ASCII 码
     char ch = 0;
-    // [/?] 这个键比较特殊，只有这个键扩展码和普通码一样
+    // 斜杠键 这个键比较特殊，只有这个键扩展码和普通码一样
     if (ext == 3 && (makecode != KEY_SLASH))
     {
         ch = keymap[makecode][1];

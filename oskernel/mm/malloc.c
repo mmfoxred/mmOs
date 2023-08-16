@@ -5,7 +5,7 @@ struct bucket_desc {	/* 16 bytes */
     void			    *page;          // 管理的物理页
     struct bucket_desc	*next;          // 下一个bucket地址
     void			    *freeptr;       // 下一个可供分配的
-    unsigned short		refcnt;         // 引用计数，释放物理页时要用
+    unsigned short		refcnt;         // 引用计数，释放物理页时要用，应该是按page使用量记录的吧
     unsigned short		bucket_size;    // 每个桶的大小
 };
 
@@ -28,7 +28,7 @@ struct _bucket_dir bucket_dir[] = {
 };   /* End of list marker */
 
 /*
- * This contains a linked list of free bucket descriptor blocks
+ 最终指向空闲链表的头节点
  */
 struct bucket_desc *free_bucket_desc = (struct bucket_desc *) 0;
 
@@ -40,7 +40,7 @@ static inline void init_bucket_desc()
     struct bucket_desc *bdesc, *first;
     int	i;
 
-    first = bdesc = (struct bucket_desc *) get_free_page();
+    first = bdesc = (struct bucket_desc *) get_free_page(); //这里分配物理内存，装页框们
     if (!bdesc)
         return NULL;
     for (i = PAGE_SIZE/sizeof(struct bucket_desc); i > 1; i--) {
@@ -52,7 +52,7 @@ static inline void init_bucket_desc()
      * get_free_page() sleeps and this routine gets called again....
      */
     bdesc->next = free_bucket_desc;
-    free_bucket_desc = first;
+    free_bucket_desc = first; 
 }
 
 void* kmalloc(size_t len) {
@@ -96,9 +96,9 @@ void* kmalloc(size_t len) {
         bdesc->page = bdesc->freeptr = (void *) (cp = (char *) get_free_page());
         if (!cp)
             return NULL;
-        /* Set up the chain of free objects */
+        /* Set up the chain of free objects,cut the 4KN to  bdir->size*/
         for (i=PAGE_SIZE/bdir->size; i > 1; i--) {
-            *((char **) cp) = cp + bdir->size;
+            *((char **) cp) = cp + bdir->size; //cp是指向page的指针,这里的cp是当一个二维数组来用的
             cp += bdir->size;
         }
         *((char **) cp) = 0;
@@ -106,8 +106,8 @@ void* kmalloc(size_t len) {
         bdir->chain = bdesc;
     }
     retval = (void *) bdesc->freeptr;
-    bdesc->freeptr = *((void **) retval);
-    bdesc->refcnt++;
+    bdesc->freeptr = *((void **) retval); // 指向下一个空闲块,这里的retval是当一个二维数组来用的
+    bdesc->refcnt++; //这个应该是按page使用量记录的吧
     STI	/* OK, we're safe again */
     return(retval);
 }
@@ -142,6 +142,7 @@ found:
         /*
          * We need to make sure that prev is still accurate.  It
          * may not be, if someone rudely interrupted us....
+	     * 这里是怕prev因为中断已经不是原来的值了，所以需要重新判断一次
          */
         if ((prev && (prev->next != bdesc)) ||
             (!prev && (bdir->chain != bdesc)))
@@ -151,7 +152,7 @@ found:
         if (prev)
             prev->next = bdesc->next;
         else {
-            if (bdir->chain != bdesc)
+            if (bdir->chain != bdesc) //必不可能情况，所以退出
                 return;
             bdir->chain = bdesc->next;
         }
